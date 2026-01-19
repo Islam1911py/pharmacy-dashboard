@@ -1,0 +1,232 @@
+// Pharmacy Management System - Complete Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & EMPLOYEE MANAGEMENT
+// ============================================
+
+enum UserRole {
+  admin
+  manager
+  supervisor
+  employee
+  analyst
+  delegate
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phone        String?
+  passwordHash String
+  role         UserRole @default(employee)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  employee Employee?
+
+  @@map("users")
+}
+
+model Employee {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  employeeCode String   @unique
+  department   String?
+  managerId    String?
+  createdAt    DateTime @default(now())
+
+  user     User       @relation(fields: [userId], references: [id])
+  manager  Employee?  @relation("EmployeeHierarchy", fields: [managerId], references: [id])
+  subordinates Employee[] @relation("EmployeeHierarchy")
+
+  @@map("employees")
+}
+
+// ============================================
+// CUSTOMER MANAGEMENT
+// ============================================
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String   @unique
+  address   String?
+  createdAt DateTime @default(now())
+
+  orders Order[]
+
+  @@map("customers")
+}
+
+// ============================================
+// PRODUCT & INVENTORY MANAGEMENT
+// ============================================
+
+enum DosageForm {
+  tablet
+  capsule
+  syrup
+  injection
+  cream
+  ointment
+  drops
+  inhaler
+  powder
+  solution
+  other
+}
+
+model Product {
+  id                String     @id @default(cuid())
+  name              String
+  category          String
+  description       String?
+  activeIngredient  String
+  dosageForm        DosageForm
+  price             Float
+  stockQuantity     Int        @default(0)
+  lowStockThreshold Int        @default(10)
+  isActive          Boolean    @default(true)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  orderItems      OrderItem[]
+  returns         Return[]
+  inventoryLogs   InventoryLog[]
+
+  @@map("products")
+}
+
+model InventoryLog {
+  id             String   @id @default(cuid())
+  productId      String
+  changeQuantity Int
+  reason         String   // sale, return, adjustment, restock
+  referenceId    String?  // order_id or return_id
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("inventory_logs")
+}
+
+// ============================================
+// ORDER MANAGEMENT
+// ============================================
+
+enum OrderStatus {
+  pending
+  confirmed
+  processing
+  delivered
+  cancelled
+  refunded
+}
+
+enum PaymentStatus {
+  unpaid
+  partial
+  paid
+  refunded
+}
+
+model Order {
+  id              String        @id @default(cuid())
+  customerId      String
+  status          OrderStatus   @default(pending)
+  totalPrice      Float         @default(0)
+  paymentStatus   PaymentStatus @default(unpaid)
+  paidAmount      Float         @default(0)
+  remainingAmount Float         @default(0)
+  deliveryAddress String?
+  notes           String?
+  assignedTo      String?       // employee_id for delegate role
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  orderItems  OrderItem[]
+  payments    Payment[]
+  returns     Return[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  productId String
+  quantity  Int
+  unitPrice Float
+  subtotal  Float
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+// ============================================
+// PAYMENT MANAGEMENT
+// ============================================
+
+enum PaymentMethod {
+  cash
+  card
+  vodafone
+  other
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  orderId   String
+  amount    Float
+  method    PaymentMethod
+  notes     String?
+  createdAt DateTime      @default(now())
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+// ============================================
+// RETURNS MANAGEMENT
+// ============================================
+
+model Return {
+  id        String   @id @default(cuid())
+  orderId   String
+  productId String
+  quantity  Int
+  reason    String
+  notes     String?
+  createdAt DateTime @default(now())
+
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("returns")
+}

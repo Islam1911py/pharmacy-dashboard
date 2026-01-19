@@ -1,0 +1,68 @@
+import { NextRequest } from 'next/server';
+import { db } from '@/lib/db';
+import { getUserFromToken, hasPermission } from '@/lib/rbac';
+import { successResponse, errorResponse, unauthorizedResponse, forbiddenResponse } from '@/lib/api-response';
+
+export async function POST(request: NextRequest) {
+  try {
+    const authHeader = request.headers.get('authorization');
+    const userPayload = getUserFromToken(authHeader);
+
+    if (!userPayload) {
+      return unauthorizedResponse();
+    }
+
+    if (!hasPermission(userPayload.role as any, 'inventory.adjust')) {
+      return forbiddenResponse();
+    }
+
+    const body = await request.json();
+    const { productId, changeQuantity, reason, notes, referenceId } = body;
+
+    // Validation
+    if (!productId || !changeQuantity || !reason) {
+      return errorResponse('VALIDATION_ERROR', 'Product ID, change quantity, and reason are required', 400);
+    }
+
+    // Get product
+    const product = await db.product.findUnique({
+      where: { id: productId },
+    });
+
+    if (!product) {
+      return errorResponse('PRODUCT_NOT_FOUND', 'Product not found', 404);
+    }
+
+    // Calculate new quantity
+    const newQuantity = product.stockQuantity + parseInt(changeQuantity);
+
+    if (newQuantity < 0) {
+      return errorResponse('INVALID_QUANTITY', 'Stock cannot be negative', 400);
+    }
+
+    // Update product stock
+    await db.product.update({
+      where: { id: productId },
+      data: { stockQuantity: newQuantity },
+    });
+
+    // Log inventory change
+    const log = await db.inventoryLog.create({
+      data: {
+        productId,
+        changeQuantity: parseInt(changeQuantity),
+        reason,
+        referenceId,
+        notes,
+      },
+      include: {
+        product: true,
+      },
+    });
+
+    return successResponse(log);
+  } catch (error) {
+    console.error('Adjust inventory error:', error);
+    return errorResponse('SERVER_ERROR', 'Failed to adjust inventory', 500);
+  }
+}
